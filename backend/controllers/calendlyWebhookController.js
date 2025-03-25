@@ -6,36 +6,79 @@ const CalendlyAvailability = require('../models/calendlyAvailabilityModel');
 const CalendlyService = require('../services/calendlyService');
 
 /**
- * Verify Calendly webhook signature
+ * Verify Calendly webhook signature based on Calendly's documentation
  * @param {Object} req - Express request object
  * @returns {boolean} Whether the signature is valid
  */
 const verifySignature = (req) => {
   try {
+    // Skip verification if no signing key is configured
     if (!process.env.CALENDLY_WEBHOOK_SIGNING_KEY) {
       console.warn('CALENDLY_WEBHOOK_SIGNING_KEY not defined, skipping signature verification');
       return true;
     }
 
+    // Get the signature from headers
     const signature = req.headers['calendly-webhook-signature'];
     if (!signature) {
       console.error('No Calendly webhook signature found in headers');
       return false;
     }
 
-    const payload = JSON.stringify(req.body);
+    // Parse signature components (format: t=timestamp,v1=signature)
+    const signatureParts = {};
+    signature.split(',').forEach(part => {
+      const [key, value] = part.split('=');
+      signatureParts[key] = value;
+    });
+
+    // Ensure we have timestamp and signature values
+    if (!signatureParts.t || !signatureParts.v1) {
+      console.error('Invalid signature format, missing required components');
+      return false;
+    }
+
+    // Extract timestamp and signature from the header
+    const timestamp = signatureParts.t;
+    const providedSignature = signatureParts.v1;
+
+    // Optional: Check if webhook is recent (within 5 minutes)
+    const fiveMinutesAgo = Math.floor(Date.now() / 1000) - 5 * 60;
+    if (parseInt(timestamp, 10) < fiveMinutesAgo) {
+      console.error('Webhook timestamp is too old');
+      return false;
+    }
+
+    // Get the raw body as a string
+    // This should be the exact payload as sent by Calendly
+    const rawBody = req.rawBody || JSON.stringify(req.body);
+    
+    // Create the signature string exactly as Calendly does:
+    // timestamp + '.' + rawBody
+    const signatureBaseString = timestamp + '.' + rawBody;
+    
+    // Compute expected signature using HMAC-SHA-256
     const hmac = crypto.createHmac('sha256', process.env.CALENDLY_WEBHOOK_SIGNING_KEY);
-    const digest = hmac.update(payload).digest('hex');
+    hmac.update(signatureBaseString);
+    const expectedSignature = hmac.digest('hex');
+    
+    // For debugging
+    console.log('Timestamp:', timestamp);
+    console.log('Raw Body:', rawBody.substring(0, 100) + '...');
+    console.log('Signature Base String:', signatureBaseString.substring(0, 50) + '...');
+    console.log('Expected Signature:', expectedSignature);
+    console.log('Provided Signature:', providedSignature);
 
-    // Signature format is t=timestamp,v1=signature
-    const signatureParts = signature.split(',');
-    // Extract the v1 signature
-    const webhookSignature = signatureParts[1]?.split('=')[1];
-
-    return crypto.timingSafeEqual(
-      Buffer.from(digest, 'hex'),
-      Buffer.from(webhookSignature, 'hex')
-    );
+    // Compare signatures in constant time to prevent timing attacks
+    try {
+      return crypto.timingSafeEqual(
+        Buffer.from(expectedSignature, 'hex'),
+        Buffer.from(providedSignature, 'hex')
+      );
+    } catch (comparisonError) {
+      console.error('Error in signature comparison:', comparisonError);
+      return false;
+    }
   } catch (error) {
     console.error('Error verifying webhook signature:', error);
     return false;
@@ -181,16 +224,38 @@ const updateJobseekerAvailability = async (jobseeker, schedule) => {
  */
 exports.handleWebhook = async (req, res) => {
   try {
-    // Verify the signature to make sure it's from Calendly
-    if (!verifySignature(req)) {
-      return res.status(401).json({
+    console.log('⭐ WEBHOOK RECEIVED ⭐');
+    console.log('Headers:', JSON.stringify(req.headers));
+    console.log('Signature Header:', req.headers['calendly-webhook-signature']);
+    
+    // Log the raw body (but truncate it if very large)
+    const rawBodyPreview = req.rawBody?.substring(0, 200) + 
+      (req.rawBody?.length > 200 ? '...' : '');
+    console.log('Raw Body (preview):', rawBodyPreview);
+    
+    // Verify the signature
+    const isValid = verifySignature(req);
+    console.log('🔑 Signature verification result:', isValid ? '✅ VALID' : '❌ INVALID');
+    
+    // Always respond with 200 OK for webhook ping/test calls from Calendly
+    // These typically don't have a proper event structure
+    if (!req.body || !req.body.event) {
+      console.log('No event in body, likely a ping/test call');
+      return res.status(200).json({ received: true, message: 'Webhook received' });
+    }
+    
+    // Skip processing if signature is invalid
+    if (!isValid && process.env.CALENDLY_WEBHOOK_SIGNING_KEY) {
+      console.error('❌ Webhook signature verification failed');
+      return res.status(200).json({
         success: false,
         message: 'Invalid signature'
       });
     }
 
     const event = req.body;
-    console.log('Received Calendly webhook event:', event.event);
+    console.log('Processing Calendly webhook event:', event.event);
+    console.log('Event payload:', JSON.stringify(event.payload).substring(0, 200) + '...');
 
     // Handle different event types
     switch (event.event) {
@@ -225,13 +290,12 @@ exports.handleWebhook = async (req, res) => {
         console.log(`Unhandled event type: ${event.event}`);
     }
 
-    res.status(200).json({ received: true });
+    // Always respond with 200 OK to acknowledge receipt
+    res.status(200).json({ received: true, success: true });
   } catch (error) {
     console.error('Error handling Calendly webhook:', error);
-    res.status(500).json({
-      success: false,
-      message: 'Error processing webhook'
-    });
+    // Still respond with 200 OK to acknowledge receipt
+    res.status(200).json({ received: true, success: false, error: error.message });
   }
 };
 
