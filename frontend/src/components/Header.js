@@ -22,11 +22,24 @@ const Header = () => {
               
               {currentUser ? (
                 <>
+                  {/* Show dashboard link for jobseekers */}
+                  {currentUser.role === 'jobseeker' && (
+                    <LinkContainer to="/dashboard">
+                      <Nav.Link>Dashboard</Nav.Link>
+                    </LinkContainer>
+                  )}
+                  
                   <LinkContainer to="/bookings">
                     <Nav.Link>Bookings</Nav.Link>
                   </LinkContainer>
                   
                   <NavDropdown title={currentUser.name || 'User'} id="username">
+                    {currentUser.role === 'jobseeker' ? (
+                      <LinkContainer to="/dashboard">
+                        <NavDropdown.Item>Dashboard</NavDropdown.Item>
+                      </LinkContainer>
+                    ) : null}
+                    
                     <LinkContainer to="/profile">
                       <NavDropdown.Item>Profile</NavDropdown.Item>
                     </LinkContainer>

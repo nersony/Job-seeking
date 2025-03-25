@@ -1,4 +1,4 @@
-// backend/services/calendlyService.js
+// backend/services/calendlyService.js (Updated)
 const axios = require('axios');
 
 /**
@@ -32,48 +32,44 @@ class CalendlyService {
      * @param {string} userUri - User's Calendly URI
      * @returns {Promise<Array>} User's schedules
      */
-    static async getAvailabilitySchedules(accessToken, userUri) {
+    static async getUserAvailabilitySchedules(accessToken, userUri) {
         try {
-            // First get user's event types
-            const eventTypes = await this.getEventTypes(accessToken, userUri);
-
-            if (!eventTypes || eventTypes.length === 0) {
-                return [];
-            }
-
-            // For each event type, get scheduling link
-            const schedulingLinks = [];
-            for (const eventType of eventTypes) {
-                if (eventType.active) {
-                    try {
-                        // Get scheduling link for this event type
-                        const response = await axios.get(`https://api.calendly.com/scheduling_links`, {
-                            params: {
-                                owner: eventType.uri,
-                                owner_type: 'EventType'
-                            },
-                            headers: {
-                                'Authorization': `Bearer ${accessToken}`,
-                                'Content-Type': 'application/json'
-                            }
-                        });
-
-                        if (response.data.collection && response.data.collection.length > 0) {
-                            schedulingLinks.push({
-                                eventType,
-                                schedulingLink: response.data.collection[0]
-                            });
-                        }
-                    } catch (linkError) {
-                        console.warn(`Could not get scheduling link for event type ${eventType.name}:`, linkError.message);
-                    }
+            const response = await axios.get('https://api.calendly.com/user_availability_schedules', {
+                params: {
+                    user: userUri
+                },
+                headers: {
+                    'Authorization': `Bearer ${accessToken}`,
+                    'Content-Type': 'application/json'
                 }
-            }
+            });
 
-            return schedulingLinks;
+            return response.data.collection;
         } catch (error) {
             console.error('Error fetching availability schedules:', error.response?.data || error.message);
             throw new Error('Failed to fetch Calendly availability schedules');
+        }
+    }
+
+    /**
+     * Get a specific availability schedule by ID
+     * @param {string} accessToken - Calendly access token
+     * @param {string} scheduleUri - Availability schedule URI
+     * @returns {Promise<Object>} Schedule details
+     */
+    static async getAvailabilityScheduleById(accessToken, scheduleUri) {
+        try {
+            const response = await axios.get(scheduleUri, {
+                headers: {
+                    'Authorization': `Bearer ${accessToken}`,
+                    'Content-Type': 'application/json'
+                }
+            });
+
+            return response.data.resource;
+        } catch (error) {
+            console.error('Error fetching availability schedule:', error.response?.data || error.message);
+            throw new Error('Failed to fetch Calendly schedule');
         }
     }
 
@@ -182,6 +178,10 @@ class CalendlyService {
      */
     static async refreshToken(refreshToken) {
         try {
+            if (!process.env.CALENDLY_CLIENT_ID || !process.env.CALENDLY_CLIENT_SECRET) {
+                throw new Error('Calendly client credentials not configured');
+            }
+
             const response = await axios.post('https://auth.calendly.com/oauth/token', {
                 client_id: process.env.CALENDLY_CLIENT_ID,
                 client_secret: process.env.CALENDLY_CLIENT_SECRET,
@@ -267,22 +267,13 @@ class CalendlyService {
      * @param {string} userUri - User's Calendly URI
      * @returns {Promise<Object>} Weekly availability structure
      */
-    // Updated method in CalendlyService.js
     static async getWeeklyAvailability(accessToken, userUri) {
         try {
-            // Get the user's availability schedules using the correct endpoint
-            const response = await axios.get('https://api.calendly.com/user_availability_schedules', {
-                params: {
-                    user: userUri
-                },
-                headers: {
-                    'Authorization': `Bearer ${accessToken}`,
-                    'Content-Type': 'application/json'
-                }
-            });
+            // Check if we have this data stored in the local database first
+            // This implementation would be added when we integrate with the database
 
-            // Extract availability schedules from the response
-            const availabilitySchedules = response.data.collection || [];
+            // Fall back to API call if not available in local database
+            const availabilitySchedules = await this.getUserAvailabilitySchedules(accessToken, userUri);
 
             if (availabilitySchedules.length === 0) {
                 return {
@@ -301,6 +292,9 @@ class CalendlyService {
                 scheduleToUse = availabilitySchedules.find(s => s.default) || availabilitySchedules[0];
             }
 
+            // Get the full schedule details
+            const scheduleDetails = await this.getAvailabilityScheduleById(accessToken, scheduleToUse.uri);
+
             // Initialize weekly schedule
             const weeklySchedule = {
                 monday: [],
@@ -312,9 +306,9 @@ class CalendlyService {
                 sunday: []
             };
 
-            // Process the rules from the availability schedule
-            if (scheduleToUse.rules && Array.isArray(scheduleToUse.rules)) {
-                scheduleToUse.rules.forEach(rule => {
+            // Process the rules from the schedule
+            if (scheduleDetails.rules && Array.isArray(scheduleDetails.rules)) {
+                scheduleDetails.rules.forEach(rule => {
                     // We only care about weekly day rules (wday type)
                     if (rule.type !== 'wday') return;
 
@@ -381,87 +375,82 @@ class CalendlyService {
             sunday: []
         };
     }
-    static async getSimpleWeeklyAvailability(accessToken, userUri) {
+
+    /**
+     * Register a webhook subscription with Calendly
+     * @param {string} accessToken - Calendly access token
+     * @param {string} userUri - User's Calendly URI
+     * @param {string} webhookUrl - URL to receive webhook events
+     * @param {Array} events - List of event types to subscribe to
+     * @returns {Promise<Object>} Webhook subscription details
+     */
+    static async createWebhookSubscription(accessToken, userUri, webhookUrl, events) {
         try {
-            // Initialize a basic weekly schedule
-            const weeklySchedule = {
-                monday: [],
-                tuesday: [],
-                wednesday: [],
-                thursday: [],
-                friday: [],
-                saturday: [],
-                sunday: []
-            };
-
-            // For a simple approach, create proper time ranges
-            const businessDays = ['monday', 'tuesday', 'wednesday', 'thursday', 'friday'];
-            const weekendDays = ['saturday'];
-
-            // For weekdays (Mon-Fri), set 9 AM to 5 PM
-            businessDays.forEach(day => {
-                weeklySchedule[day] = [
-                    { startTime: '09:00', endTime: '17:00' }
-                ];
+            const response = await axios.post('https://api.calendly.com/webhook_subscriptions', {
+                url: webhookUrl,
+                events: events,
+                organization: userUri.replace('users', 'organizations'),
+                scope: 'organization'
+            }, {
+                headers: {
+                    'Authorization': `Bearer ${accessToken}`,
+                    'Content-Type': 'application/json'
+                }
             });
 
-            // For Saturday, set 9 AM to 5 PM
-            weekendDays.forEach(day => {
-                weeklySchedule[day] = [
-                    { startTime: '09:00', endTime: '17:00' }
-                ];
-            });
-
-            // Sunday is typically off, leaving it empty
-
-            return weeklySchedule;
+            return response.data.resource;
         } catch (error) {
-            console.error('Error getting simple weekly availability:', error);
-            throw new Error('Failed to get simple weekly availability');
+            console.error('Error creating webhook subscription:', error.response?.data || error.message);
+            throw new Error('Failed to create Calendly webhook subscription');
         }
     }
+
     /**
-     * Group time slots into ranges
-     * @param {Array} timeSlots - Individual time slots
-     * @returns {Array} Combined time ranges
+     * Get list of webhook subscriptions
+     * @param {string} accessToken - Calendly access token
+     * @param {string} organizationUri - Organization URI
+     * @returns {Promise<Array>} List of webhook subscriptions
      */
-    static groupTimeSlots(timeSlots) {
-        if (!timeSlots || timeSlots.length === 0) {
-            return [];
+    static async getWebhookSubscriptions(accessToken, organizationUri) {
+        try {
+            const response = await axios.get('https://api.calendly.com/webhook_subscriptions', {
+                params: {
+                    organization: organizationUri,
+                    scope: 'organization'
+                },
+                headers: {
+                    'Authorization': `Bearer ${accessToken}`,
+                    'Content-Type': 'application/json'
+                }
+            });
+
+            return response.data.collection;
+        } catch (error) {
+            console.error('Error fetching webhook subscriptions:', error.response?.data || error.message);
+            throw new Error('Failed to fetch Calendly webhook subscriptions');
         }
+    }
 
-        // Sort time slots by start time
-        timeSlots.sort((a, b) => new Date(a.start_time) - new Date(b.start_time));
+    /**
+     * Delete a webhook subscription
+     * @param {string} accessToken - Calendly access token
+     * @param {string} webhookUri - Webhook subscription URI
+     * @returns {Promise<boolean>} Success status
+     */
+    static async deleteWebhookSubscription(accessToken, webhookUri) {
+        try {
+            await axios.delete(webhookUri, {
+                headers: {
+                    'Authorization': `Bearer ${accessToken}`,
+                    'Content-Type': 'application/json'
+                }
+            });
 
-        const ranges = [];
-        let currentRange = {
-            startTime: new Date(timeSlots[0].start_time).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
-            endTime: new Date(timeSlots[0].end_time).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
-        };
-
-        for (let i = 1; i < timeSlots.length; i++) {
-            const currentSlot = timeSlots[i];
-            const currentEndTime = new Date(timeSlots[i - 1].end_time);
-            const nextStartTime = new Date(currentSlot.start_time);
-
-            // If slots are adjacent (within 1 minute)
-            if (nextStartTime - currentEndTime <= 60000) {
-                // Update end time of current range
-                currentRange.endTime = new Date(currentSlot.end_time).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-            } else {
-                // Add current range to results and start a new one
-                ranges.push(currentRange);
-                currentRange = {
-                    startTime: new Date(currentSlot.start_time).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
-                    endTime: new Date(currentSlot.end_time).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
-                };
-            }
+            return true;
+        } catch (error) {
+            console.error('Error deleting webhook subscription:', error.response?.data || error.message);
+            throw new Error('Failed to delete Calendly webhook subscription');
         }
-
-        // Add the last range
-        ranges.push(currentRange);
-
-        return ranges;
     }
 }
 

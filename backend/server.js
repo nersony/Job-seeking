@@ -1,4 +1,4 @@
-// backend/server.js
+// backend/server.js (Updated)
 const express = require('express');
 const mongoose = require('mongoose');
 const cors = require('cors');
@@ -8,15 +8,31 @@ const jobRoutes = require('./routes/jobRoutes');
 const paymentRoutes = require('./routes/paymentRoutes');
 const bookingRoutes = require('./routes/bookingRoutes');
 const calendlyRoutes = require('./routes/calendlyRoutes');
+const calendlyWebhookRoutes = require('./routes/calendlyWebhookRoutes');
+const availabilityRoutes = require('./routes/availabilityRoutes');
+const disputeRoutes = require('./routes/disputeRoutes');
 
 // Load environment variables
 dotenv.config();
 
 // Initialize Express app
 const app = express();
-// Handle raw body for Stripe webhooks
+
+// Special handling for webhooks that may send raw body
+app.use('/api/calendly/webhook', express.raw({ type: 'application/json' }));
 app.use('/api/stripe/webhook', express.raw({ type: 'application/json' }));
-// Middleware
+
+// Process raw body for webhook routes
+app.use((req, res, next) => {
+  if (req.originalUrl === '/api/calendly/webhook' || req.originalUrl === '/api/stripe/webhook') {
+    if (req.body && req.body.length) {
+      req.body = JSON.parse(req.body.toString());
+    }
+  }
+  next();
+});
+
+// Standard middleware
 app.use(cors());
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
@@ -32,6 +48,9 @@ app.use('/api/jobseekers', jobRoutes);
 app.use('/api/payments', paymentRoutes);
 app.use('/api/bookings', bookingRoutes);
 app.use('/api/calendly', calendlyRoutes);
+app.use('/api/calendly', calendlyWebhookRoutes);
+app.use('/api/availability', availabilityRoutes);
+app.use('/api/disputes', disputeRoutes);
 
 // Add Stripe routes
 const stripeRoutes = require('./routes/stripeRoutes');

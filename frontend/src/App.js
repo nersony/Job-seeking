@@ -14,6 +14,7 @@ import BookingListScreen from './screens/BookingListScreen';
 import BookingDetailScreen from './screens/BookingDetailScreen';
 import DisputeScreen from './screens/DisputeScreen';
 import AdminDashboard from './screens/AdminDashboard';
+import JobseekerDashboardScreen from './screens/JobseekerDashboardScreen';
 import CalendlyCallbackScreen from './screens/CalendlyCallbackScreen';
 import { AuthProvider } from './contexts/AuthContext';
 import PrivateRoute from './components/PrivateRoute';
@@ -42,6 +43,17 @@ const App = () => {
                   </PrivateRoute>
                 } 
               />
+              
+              {/* Jobseeker Dashboard */}
+              <Route 
+                path="/dashboard" 
+                element={
+                  <JobseekerRoute>
+                    <JobseekerDashboardScreen />
+                  </JobseekerRoute>
+                } 
+              />
+              
               <Route path="/jobseekers" element={<JobseekerListScreen />} />
               <Route path="/jobseekers/:id" element={<JobseekerDetailScreen />} />
               
