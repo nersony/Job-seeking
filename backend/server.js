@@ -1,3 +1,4 @@
+// backend/server.js
 const express = require('express');
 const mongoose = require('mongoose');
 const cors = require('cors');
@@ -7,6 +8,7 @@ const jobRoutes = require('./routes/jobRoutes');
 const paymentRoutes = require('./routes/paymentRoutes');
 const bookingRoutes = require('./routes/bookingRoutes');
 const calendlyRoutes = require('./routes/calendlyRoutes');
+
 // Load environment variables
 dotenv.config();
 
@@ -30,10 +32,11 @@ app.use('/api/jobseekers', jobRoutes);
 app.use('/api/payments', paymentRoutes);
 app.use('/api/bookings', bookingRoutes);
 app.use('/api/calendly', calendlyRoutes);
+
 // Add Stripe routes
 const stripeRoutes = require('./routes/stripeRoutes');
-
 app.use('/api/stripe', stripeRoutes);
+
 // Root route
 app.get('/', (req, res) => {
   res.send('Caregiving Job Matching API is running');

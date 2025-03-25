@@ -1,4 +1,6 @@
+// frontend/src/screens/ProfileScreen.js
 import React, { useState, useEffect } from "react";
+import { useLocation, useNavigate } from "react-router-dom";
 import {
   Form,
   Button,
@@ -7,10 +9,12 @@ import {
   Card,
   ListGroup,
   Badge,
+  Alert
 } from "react-bootstrap";
-import { useNavigate } from "react-router-dom";
+import { FaCalendarAlt, FaLink } from "react-icons/fa";
 import Message from "../components/Message";
 import Loader from "../components/Loader";
+import CalendlyAvailabilitySettings from "../components/CalendlyAvailabilitySettings";
 import { useAuth } from "../contexts/AuthContext";
 
 const ProfileScreen = () => {
@@ -34,7 +38,6 @@ const ProfileScreen = () => {
     bio: "",
     skills: [],
     hourlyRate: "",
-    calendlyLink: "",
   });
 
   const [message, setMessage] = useState("");
@@ -43,6 +46,7 @@ const ProfileScreen = () => {
   const [jobseekerProfile, setJobseekerProfile] = useState(null);
   const [skillInput, setSkillInput] = useState("");
   const [certifications, setCertifications] = useState([]);
+  const [showCalendlySuccess, setShowCalendlySuccess] = useState(false);
   const [newCertification, setNewCertification] = useState({
     name: "",
     issuer: "",
@@ -50,8 +54,11 @@ const ProfileScreen = () => {
     expiryDate: "",
     documentUrl: "",
   });
+  // For Calendly connection
+  const [calendlyConnected, setCalendlyConnected] = useState(false);
 
   const navigate = useNavigate();
+  const location = useLocation();
 
   useEffect(() => {
     if (!currentUser) {
@@ -71,6 +78,21 @@ const ProfileScreen = () => {
           country: currentUser.address?.country || "",
         },
       });
+      // Check for error in URL params (from Calendly OAuth redirect)
+      const urlParams = new URLSearchParams(location.search);
+      const errorMessage = urlParams.get('error');
+
+      if (errorMessage) {
+        setError(decodeURIComponent(errorMessage));
+        // Clear the error from the URL to prevent showing it again on refresh
+        navigate(location.pathname, { replace: true });
+      }
+      // If location has calendarConnected state, show success message
+      if (location.state?.calendarConnected) {
+        setShowCalendlySuccess(true);
+        // Clear the state after showing the message
+        navigate(location.pathname, { replace: true });
+      }
 
       // If user is a jobseeker, fetch jobseeker profile
       if (currentUser.role === "jobseeker") {
@@ -84,9 +106,14 @@ const ProfileScreen = () => {
                 bio: profile.bio || "",
                 skills: profile.skills || [],
                 hourlyRate: profile.hourlyRate || "",
-                calendlyLink: profile.calendlyLink || "",
               });
               setCertifications(profile.certifications || []);
+
+              // Check if Calendly is connected
+              setCalendlyConnected(
+                !!profile.calendlyAccessToken &&
+                !!profile.calendlyUri
+              );
             }
           } catch (error) {
             console.error("Error fetching jobseeker profile:", error);
@@ -97,7 +124,7 @@ const ProfileScreen = () => {
         fetchJobseekerProfile();
       }
     }
-  }, [currentUser, navigate, API]);
+  }, [currentUser, navigate, API, location]);
 
   const onUserDataChange = (e) => {
     if (e.target.name.includes(".")) {
@@ -185,29 +212,18 @@ const ProfileScreen = () => {
     }
   };
 
-  const updateCalendlyLink = async (e) => {
-    e.preventDefault();
-
-    if (!jobseekerData.calendlyLink) {
-      setError("Please enter your Calendly link");
-      return;
-    }
-
+  const connectCalendly = async () => {
     try {
       setLoading(true);
-      await API.put("/jobseekers/calendly", {
-        calendlyLink: jobseekerData.calendlyLink,
-      });
-
-      setMessage("Calendly link updated successfully");
-      setError("");
+      const res = await API.get(`/calendly/auth/url?userId=${currentUser._id}`);
+      window.location.href = res.data.authUrl;
     } catch (error) {
+      console.error('Error getting Calendly auth URL:', error);
       setError(
         error.response && error.response.data.message
           ? error.response.data.message
-          : "Failed to update Calendly link"
+          : "Failed to connect Calendly"
       );
-    } finally {
       setLoading(false);
     }
   };
@@ -241,8 +257,7 @@ const ProfileScreen = () => {
         updatedData.jobseekerProfile = {
           bio: jobseekerData.bio,
           skills: jobseekerData.skills,
-          hourlyRate: jobseekerData.hourlyRate,
-          calendlyLink: jobseekerData.calendlyLink,
+          hourlyRate: jobseekerData.hourlyRate
         };
       }
 
@@ -261,6 +276,22 @@ const ProfileScreen = () => {
 
   return (
     <Row>
+      {showCalendlySuccess && (
+        <Col md={12} className="mb-4">
+          <Alert
+            variant="success"
+            onClose={() => setShowCalendlySuccess(false)}
+            dismissible
+          >
+            <Alert.Heading>Calendly Connected Successfully!</Alert.Heading>
+            <p>
+              Your Calendly account has been successfully connected to your profile.
+              You can now manage your availability and allow clients to book appointments directly through your schedule.
+            </p>
+          </Alert>
+        </Col>
+      )}
+
       <Col md={4}>
         <h2>User Profile</h2>
         {message && <Message variant="success">{message}</Message>}
@@ -400,6 +431,46 @@ const ProfileScreen = () => {
       {currentUser && currentUser.role === "jobseeker" && (
         <Col md={8}>
           <h2>Job Provider Profile</h2>
+
+          {/* Calendly Connect/Manage Section */}
+          {calendlyConnected ? (
+            <CalendlyAvailabilitySettings />
+          ) : (
+            <Card className="mb-4">
+              <Card.Header className="bg-primary text-white">
+                <div className="d-flex align-items-center">
+                  <FaCalendarAlt className="me-2" />
+                  <h4 className="mb-0">Connect Your Calendar</h4>
+                </div>
+              </Card.Header>
+              <Card.Body className="text-center">
+                <p className="mb-4">
+                  Connect your Calendly account to manage your availability and let clients book appointments with you.
+                  This will sync your availability settings between Calendly and our platform.
+                </p>
+
+                <Button
+                  variant="primary"
+                  size="lg"
+                  onClick={connectCalendly}
+                  disabled={loading}
+                >
+                  <FaLink className="me-2" />
+                  Connect with Calendly
+                </Button>
+
+                <div className="mt-3 text-muted">
+                  <small>
+                    Don't have a Calendly account?{' '}
+                    <a href="https://calendly.com/signup" target="_blank" rel="noopener noreferrer">
+                      Sign up for free
+                    </a>
+                  </small>
+                </div>
+              </Card.Body>
+            </Card>
+          )}
+
           <Card className="mb-4">
             <Card.Body>
               <h4>Bio and Service Information</h4>
@@ -462,31 +533,15 @@ const ProfileScreen = () => {
                   ))}
                 </div>
               </Form.Group>
-            </Card.Body>
-          </Card>
 
-          <Card className="mb-4">
-            <Card.Body>
-              <h4>Calendly Integration</h4>
-              <Form onSubmit={updateCalendlyLink}>
-                <Form.Group className="mb-3" controlId="calendlyLink">
-                  <Form.Label>Calendly Link</Form.Label>
-                  <Form.Control
-                    type="text"
-                    placeholder="Enter your Calendly link"
-                    name="calendlyLink"
-                    value={jobseekerData.calendlyLink}
-                    onChange={onJobseekerDataChange}
-                  />
-                  <Form.Text className="text-muted">
-                    This link will be used for clients to book appointments with
-                    you
-                  </Form.Text>
-                </Form.Group>
-                <Button type="submit" variant="primary" disabled={loading}>
-                  Update Calendly Link
-                </Button>
-              </Form>
+              <Button
+                type="button"
+                variant="primary"
+                onClick={submitUserProfileHandler}
+                disabled={loading}
+              >
+                {loading ? 'Updating...' : 'Update Profile Information'}
+              </Button>
             </Card.Body>
           </Card>
 

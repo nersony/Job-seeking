@@ -76,16 +76,39 @@ export function AuthProvider({ children }) {
   };
 
   // Login user
-  const login = async (email, password) => {
-    const res = await API.post('/users/login', { email, password });
-    
-    if (res.data.token) {
-      localStorage.setItem('token', res.data.token);
-      setToken(res.data.token);
-      setCurrentUser(res.data.user);
+  const login = async (email, password, token, userData) => {
+    try {
+      // If token is provided directly, use it instead of making a login request
+      if (token) {
+        setToken(token);
+        
+        // If userData is also provided, use it
+        if (userData) {
+          setCurrentUser(userData);
+        } else {
+          // Otherwise, fetch the user profile
+          const res = await API.get('/users/profile');
+          setCurrentUser(res.data.user);
+        }
+        
+        return { token, user: userData || res.data.user };
+      }
+      
+      // Regular login flow with email/password
+      const res = await API.post('/users/login', { email, password });
+      
+      if (res.data.token) {
+        localStorage.setItem('token', res.data.token);
+        setToken(res.data.token);
+        setCurrentUser(res.data.user);
+      }
+      
+      return res.data;
+    } catch (error) {
+      // Improve error handling
+      console.error('Login error:', error.response?.data || error.message);
+      throw error;
     }
-    
-    return res.data;
   };
 
   // Logout user

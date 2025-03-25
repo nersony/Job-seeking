@@ -1,3 +1,4 @@
+// backend/models/jobseekerModel.js
 const mongoose = require('mongoose');
 
 const jobseekerSchema = new mongoose.Schema({
@@ -31,10 +32,26 @@ const jobseekerSchema = new mongoose.Schema({
     type: Number, // Years of experience
     default: 0
   },
+  // Calendly integration fields
   calendlyLink: {
     type: String,
     trim: true
   },
+  calendlyUri: {
+    type: String,
+    trim: true
+  },
+  calendlyAccessToken: {
+    type: String
+  },
+  calendlyRefreshToken: {
+    type: String
+  },
+  calendlyTokenExpiry: {
+    type: Date
+  },
+  // Selected event types to display on profile
+  selectedEventTypes: [String],
   hourlyRate: {
     type: Number,
     required: true
@@ -56,6 +73,9 @@ const jobseekerSchema = new mongoose.Schema({
 }, {
   timestamps: true
 });
-
+jobseekerSchema.index({ calendlyUri: 1 }, {
+  unique: true,
+  partialFilterExpression: { calendlyUri: { $exists: true } }
+});
 const Jobseeker = mongoose.model('Jobseeker', jobseekerSchema);
 module.exports = Jobseeker;

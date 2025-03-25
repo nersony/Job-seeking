@@ -14,6 +14,7 @@ import BookingListScreen from './screens/BookingListScreen';
 import BookingDetailScreen from './screens/BookingDetailScreen';
 import DisputeScreen from './screens/DisputeScreen';
 import AdminDashboard from './screens/AdminDashboard';
+import CalendlyCallbackScreen from './screens/CalendlyCallbackScreen';
 import { AuthProvider } from './contexts/AuthContext';
 import PrivateRoute from './components/PrivateRoute';
 import AdminRoute from './components/AdminRoute';
@@ -30,6 +31,7 @@ const App = () => {
               <Route path="/" element={<HomeScreen />} />
               <Route path="/login" element={<LoginScreen />} />
               <Route path="/register" element={<RegisterScreen />} />
+              <Route path="/calendly-callback" element={<CalendlyCallbackScreen />} />
               
               {/* Private Routes */}
               <Route 
