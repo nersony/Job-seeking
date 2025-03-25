@@ -1,25 +1,33 @@
-// backend/models/jobseekerModel.js (Updated)
+// backend/models/jobseekerModel.js
 const mongoose = require('mongoose');
 
-// Schema for Calendly scheduling links
-const schedulingLinkSchema = new mongoose.Schema({
-  uri: {
+// Schema for availability time slots
+const timeSlotSchema = new mongoose.Schema({
+  day: {
     type: String,
+    enum: ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'],
     required: true
   },
-  booking_url: {
-    type: String,
-    required: true
+  startTime: {
+    type: String, // format: HH:MM (24-hour)
+    required: true,
+    validate: {
+      validator: function(v) {
+        return /^([01]\d|2[0-3]):([0-5]\d)$/.test(v);
+      },
+      message: props => `${props.value} is not a valid time format! Use HH:MM`
+    }
+  },
+  endTime: {
+    type: String, // format: HH:MM (24-hour)
+    required: true,
+    validate: {
+      validator: function(v) {
+        return /^([01]\d|2[0-3]):([0-5]\d)$/.test(v);
+      },
+      message: props => `${props.value} is not a valid time format! Use HH:MM`
+    }
   }
-}, { _id: false });
-
-// Schema for Calendly webhook subscriptions
-const webhookSubscriptionSchema = new mongoose.Schema({
-  uri: {
-    type: String,
-    required: true
-  },
-  events: [String]
 }, { _id: false });
 
 const jobseekerSchema = new mongoose.Schema({
@@ -43,51 +51,125 @@ const jobseekerSchema = new mongoose.Schema({
     issuer: String,
     dateObtained: Date,
     expiryDate: Date,
-    documentUrl: String, // URL to uploaded certification document
+    documentUrl: String,
     isVerified: {
       type: Boolean,
       default: false
     }
   }],
   experience: {
-    type: Number, // Years of experience
+    type: Number,
     default: 0
   },
-  // Calendly integration fields
-  calendlyLink: {
-    type: String,
-    trim: true
+  availability: {
+    type: [timeSlotSchema],
+    default: []
   },
-  calendlyUri: {
-    type: String,
-    trim: true
+  workingHours: {
+    monday: {
+      isWorking: {
+        type: Boolean,
+        default: false
+      },
+      startTime: {
+        type: String,
+        default: '09:00'
+      },
+      endTime: {
+        type: String,
+        default: '17:00'
+      }
+    },
+    tuesday: {
+      isWorking: {
+        type: Boolean,
+        default: false
+      },
+      startTime: {
+        type: String,
+        default: '09:00'
+      },
+      endTime: {
+        type: String,
+        default: '17:00'
+      }
+    },
+    wednesday: {
+      isWorking: {
+        type: Boolean,
+        default: false
+      },
+      startTime: {
+        type: String,
+        default: '09:00'
+      },
+      endTime: {
+        type: String,
+        default: '17:00'
+      }
+    },
+    thursday: {
+      isWorking: {
+        type: Boolean,
+        default: false
+      },
+      startTime: {
+        type: String,
+        default: '09:00'
+      },
+      endTime: {
+        type: String,
+        default: '17:00'
+      }
+    },
+    friday: {
+      isWorking: {
+        type: Boolean,
+        default: false
+      },
+      startTime: {
+        type: String,
+        default: '09:00'
+      },
+      endTime: {
+        type: String,
+        default: '17:00'
+      }
+    },
+    saturday: {
+      isWorking: {
+        type: Boolean,
+        default: false
+      },
+      startTime: {
+        type: String,
+        default: '00:00'
+      },
+      endTime: {
+        type: String,
+        default: '00:00'
+      }
+    },
+    sunday: {
+      isWorking: {
+        type: Boolean,
+        default: false
+      },
+      startTime: {
+        type: String,
+        default: '00:00'
+      },
+      endTime: {
+        type: String,
+        default: '00:00'
+      }
+    }
   },
-  calendlyAccessToken: {
-    type: String
-  },
-  calendlyRefreshToken: {
-    type: String
-  },
-  calendlyTokenExpiry: {
-    type: Date
-  },
-  calendlyEmailAddress: {
-    type: String,
-    trim: true
-  },
-  calendlyTokenNeedsManualRefresh: {
-    type: Boolean,
-    default: false
-  },
-  calendlyWebhooks: [webhookSubscriptionSchema],
-  schedulingLinks: [schedulingLinkSchema],
-  // Selected event types to display on profile
-  selectedEventTypes: [String],
-  // Availability status (managed by availability sync)
-  hasWeeklyAvailability: {
-    type: Boolean,
-    default: false
-  },
+  blockedDates: [{
+    startDate: Date,
+    endDate: Date,
+    reason: String
+  }],
   hourlyRate: {
     type: Number,
     required: true
@@ -110,43 +192,36 @@ const jobseekerSchema = new mongoose.Schema({
   timestamps: true
 });
 
-// Create a unique index on calendlyUri, but only if it exists
-jobseekerSchema.index(
-  { calendlyUri: 1 },
-  {
-    unique: true,
-    partialFilterExpression: { calendlyUri: { $exists: true } }
-  }
-);
+// Method to check if jobseeker is available at a specific time
+jobseekerSchema.methods.isAvailableAt = function(startDateTime, endDateTime) {
+  const start = new Date(startDateTime);
+  const end = new Date(endDateTime);
+  
+  // Check if there are any blocked dates
+  const isBlockedDate = this.blockedDates.some(blockedPeriod => 
+    start >= blockedPeriod.startDate && end <= blockedPeriod.endDate
+  );
+  
+  if (isBlockedDate) return false;
 
-// Method to check availability at a specific time
-jobseekerSchema.methods.isAvailableAt = async function (startDateTime, endDateTime) {
-  // If the jobseeker doesn't have Calendly integration, assume they're available
-  if (!this.calendlyUri) {
-    return true;
-  }
-  if (!this.isAvailable) {
-    return false;
-  }
-  if (this.calendlyTokenNeedsManualRefresh) {
-    return false;
-  }
-  try {
-    // Try to find availability record in our database
-    const CalendlyAvailability = mongoose.model('CalendlyAvailability');
-    const availability = await CalendlyAvailability.findOne({ jobseeker: this._id });
+  // Get day of week and time
+  const daysOfWeek = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+  const dayOfWeek = daysOfWeek[start.getDay()];
+  const startTimeStr = start.toTimeString().slice(0, 5);
+  const endTimeStr = end.toTimeString().slice(0, 5);
 
-    if (availability) {
-      // Use the local availability record to check
-      return availability.isAvailableAt(startDateTime, endDateTime);
-    } else {
-      // If no local record, assume available (could be enhanced later)
-      return true;
-    }
-  } catch (error) {
-    console.error(`Error checking availability for jobseeker ${this._id}:`, error);
-    return false;
-  }
+  // Check working hours for that day
+  const dayWorkingHours = this.workingHours[dayOfWeek.toLowerCase()];
+  
+  // If not working that day
+  if (!dayWorkingHours.isWorking) return false;
+
+  // Check if time is within working hours
+  const isWithinWorkingHours = 
+    startTimeStr >= dayWorkingHours.startTime && 
+    endTimeStr <= dayWorkingHours.endTime;
+
+  return isWithinWorkingHours;
 };
 
 const Jobseeker = mongoose.model('Jobseeker', jobseekerSchema);

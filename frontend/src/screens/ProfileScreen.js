@@ -9,12 +9,13 @@ import {
   Card,
   ListGroup,
   Badge,
+  Tabs, Tab,
   Alert
 } from "react-bootstrap";
 import { FaCalendarAlt, FaLink } from "react-icons/fa";
 import Message from "../components/Message";
 import Loader from "../components/Loader";
-import CalendlyAvailabilitySettings from "../components/CalendlyAvailabilitySettings";
+import AvailabilitySettings from '../components/AvailabilitySettings';
 import { useAuth } from "../contexts/AuthContext";
 
 const ProfileScreen = () => {
@@ -431,45 +432,16 @@ const ProfileScreen = () => {
       {currentUser && currentUser.role === "jobseeker" && (
         <Col md={8}>
           <h2>Job Provider Profile</h2>
-
-          {/* Calendly Connect/Manage Section */}
-          {calendlyConnected ? (
-            <CalendlyAvailabilitySettings />
-          ) : (
-            <Card className="mb-4">
-              <Card.Header className="bg-primary text-white">
-                <div className="d-flex align-items-center">
-                  <FaCalendarAlt className="me-2" />
-                  <h4 className="mb-0">Connect Your Calendar</h4>
-                </div>
-              </Card.Header>
-              <Card.Body className="text-center">
-                <p className="mb-4">
-                  Connect your Calendly account to manage your availability and let clients book appointments with you.
-                  This will sync your availability settings between Calendly and our platform.
-                </p>
-
-                <Button
-                  variant="primary"
-                  size="lg"
-                  onClick={connectCalendly}
-                  disabled={loading}
-                >
-                  <FaLink className="me-2" />
-                  Connect with Calendly
-                </Button>
-
-                <div className="mt-3 text-muted">
-                  <small>
-                    Don't have a Calendly account?{' '}
-                    <a href="https://calendly.com/signup" target="_blank" rel="noopener noreferrer">
-                      Sign up for free
-                    </a>
-                  </small>
-                </div>
-              </Card.Body>
-            </Card>
-          )}
+          <Card className="mb-4">
+            <Card.Body>
+              <Tabs defaultActiveKey="availability" className="mb-3">
+                {/* Other existing tabs */}
+                <Tab eventKey="availability" title="Availability">
+                  <AvailabilitySettings />
+                </Tab>
+              </Tabs>
+            </Card.Body>
+          </Card>
 
           <Card className="mb-4">
             <Card.Body>

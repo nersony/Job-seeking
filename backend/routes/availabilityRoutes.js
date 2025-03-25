@@ -2,19 +2,21 @@
 const express = require('express');
 const router = express.Router();
 const {
-  checkJobseekerAvailability,
-  findAvailableJobseekers,
-  getJobseekerWeeklyAvailability,
-  setupWebhookSubscription
+  updateWorkingHours,
+  blockDates,
+  unblockDates,
+  checkAvailability,
+  findAvailableJobseekers
 } = require('../controllers/availabilityController');
 const { protect, authorize } = require('../middleware/authMiddleware');
 
 // Public routes
-router.get('/check', checkJobseekerAvailability);
+router.get('/check', checkAvailability);
 router.get('/find-available', findAvailableJobseekers);
-router.get('/weekly/:id', getJobseekerWeeklyAvailability);
 
-// Protected routes
-router.post('/setup-webhook', protect, authorize('jobseeker'), setupWebhookSubscription);
+// Protected routes for jobseekers
+router.put('/working-hours', protect, authorize('jobseeker'), updateWorkingHours);
+router.post('/block-dates', protect, authorize('jobseeker'), blockDates);
+router.delete('/block-dates/:id', protect, authorize('jobseeker'), unblockDates);
 
 module.exports = router;

@@ -7,7 +7,6 @@ const userRoutes = require('./routes/userRoutes');
 const jobRoutes = require('./routes/jobRoutes');
 const paymentRoutes = require('./routes/paymentRoutes');
 const bookingRoutes = require('./routes/bookingRoutes');
-const calendlyRoutes = require('./routes/calendlyRoutes');
 const availabilityRoutes = require('./routes/availabilityRoutes');
 const disputeRoutes = require('./routes/disputeRoutes');
 
@@ -17,37 +16,7 @@ dotenv.config();
 // Initialize Express app
 const app = express();
 
-// Special handling for webhooks that may send raw body
-app.use('/api/calendly/webhook', express.raw({ type: 'application/json' }));
-app.use('/api/stripe/webhook', express.raw({ type: 'application/json' }));
-
-// Process raw body for webhook routes
-app.use('/api/calendly/webhook', (req, res, next) => {
-  let data = '';
-  
-  // Collect data chunks
-  req.on('data', chunk => {
-    data += chunk;
-  });
-  
-  req.on('end', () => {
-    // Store raw body exactly as received for signature verification
-    req.rawBody = data;
-    
-    // Also parse as JSON if it's valid
-    if (req.headers['content-type'] === 'application/json') {
-      try {
-        req.body = JSON.parse(data);
-      } catch (e) {
-        console.error('Error parsing webhook JSON:', e);
-        return res.status(200).json({ success: false, message: 'Invalid JSON payload' });
-      }
-    }
-    
-    next();
-  });
-});
-// Standard middleware
+// Middleware
 app.use(cors());
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
@@ -62,7 +31,6 @@ app.use('/api/users', userRoutes);
 app.use('/api/jobseekers', jobRoutes);
 app.use('/api/payments', paymentRoutes);
 app.use('/api/bookings', bookingRoutes);
-app.use('/api/calendly', calendlyRoutes);
 app.use('/api/availability', availabilityRoutes);
 app.use('/api/disputes', disputeRoutes);
 
